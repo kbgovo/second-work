@@ -19,9 +19,9 @@ parser.add_argument('--dataset', type=str, default='cora',
 parser.add_argument('--ptb_rate', type=float, default=0.2, help='pertubation rate')
 parser.add_argument('--threshold', type=float, default=0.5, help='degree threshold for neighbors')
 
-parser.add_argument('--high_threshold', type=float, default=90, 
+parser.add_argument('--high_threshold', type=float, default=80,
                     help='High threshold (percentile) for Fine-grained View')# 细粒度视图阈值(例如 90，表示保留前 10% 高置信度)
-parser.add_argument('--low_threshold', type=float, default=60, 
+parser.add_argument('--low_threshold', type=float, default=40,
                     help='Low threshold (percentile) for Coarse-grained View')# 粗粒度视图阈值(例如 60，表示保留前 40%)
 
 parser.add_argument('--pseudo_threshold', type=float, default=80,
@@ -229,14 +229,15 @@ if __name__ == '__main__':
 
     # 后续处理
     acc_total = []
-    embeds = embeds.to('cpu')
-    embeds = to_scipy(embeds)
+    # embeds = embeds.to('cpu')
+    # embeds = to_scipy(embeds)
+    embeds = embeds.to(device)
 
     # 基于嵌入修剪图（可选，保留原逻辑）
     adj_clean = adj_for_expand
 
     # 转换为模型输入格式
-    embeds = torch.FloatTensor(embeds.todense()).to(device)
+    # embeds = torch.FloatTensor(embeds.todense()).to(device)
     adj_clean = sparse_mx_to_sparse_tensor(adj_clean)
     adj_clean = adj_clean.to_dense()
     features = features.to_dense()
