@@ -203,8 +203,8 @@ if __name__ == '__main__':
 
 
     # 更新训练集索引和标签
-    idx_train = expanded_idx_train
-    labels = expanded_labels
+    idx_train = idx_train_F
+    labels = labels_F
     # 更新训练掩码（因训练集已扩展）
     train_mask = idx_to_mask(idx_train, n_nodes).to(device)
 
@@ -214,24 +214,13 @@ if __name__ == '__main__':
     # 对比学习获取嵌入（使用原始图结构，无图清洗）
     adj_for_contrastive = adj_for_expand  # 对比学习用图
     adj_delete_dummy = sp.csr_matrix((n_nodes, n_nodes))  # 虚拟删除边矩阵
-    '''
+
     embeds, _ = get_contrastive_emb(
         logger=logger,
         adj=adj_for_contrastive,
         features=features.unsqueeze(dim=0).to_dense(),
-        adj_delete=adj_delete_dummy,
-        lr=0.001,
-        weight_decay=0.0,
-        nb_epochs=10000,
-        beta=args.beta
-    )
-    '''
-    embeds, _ = get_contrastive_emb(
-        logger=logger,
-        adj=adj_for_contrastive,
-        features=features.unsqueeze(dim=0).to_dense(),
-        real_idx_train=real_idx_train,
-        expanded_idx_train=expanded_idx_train,
+        idx_train_F=idx_train_F,  # 传入细粒度索引
+        idx_train_C=idx_train_C,
         lr=0.001,
         weight_decay=0.0,
         nb_epochs=10000,
