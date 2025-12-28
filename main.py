@@ -18,6 +18,12 @@ parser.add_argument('--dataset', type=str, default='cora',
                     choices=['cora', 'cora_ml', 'citeseer', 'dblp', 'pubmed'], help='dataset')
 parser.add_argument('--ptb_rate', type=float, default=0.2, help='pertubation rate')
 parser.add_argument('--threshold', type=float, default=0.5, help='degree threshold for neighbors')
+
+parser.add_argument('--high_threshold', type=float, default=90, 
+                    help='High threshold (percentile) for Fine-grained View')# 细粒度视图阈值(例如 90，表示保留前 10% 高置信度)
+parser.add_argument('--low_threshold', type=float, default=60, 
+                    help='Low threshold (percentile) for Coarse-grained View')# 粗粒度视图阈值(例如 60，表示保留前 40%)
+
 parser.add_argument('--pseudo_threshold', type=float, default=80,
                     help='cosine similarity threshold for pseudo labels')  # 新增伪标签阈值
 parser.add_argument('--cos', type=float, default=0.1, help='cosine similarity threshold for graph pruning')
@@ -182,17 +188,17 @@ if __name__ == '__main__':
     else:
         original_labels_np = labels
 
-    # 调用扩展标签函数
-    expanded_idx_train, expanded_labels = expand_labeled_nodes(
+    # 调用多粒度视图生成函数
+    idx_train_F, labels_F, idx_train_C, labels_C = expand_multigranularity_nodes(
         features=features,
         adj=adj_for_expand,
         idx_train=idx_train,
         original_labels=original_labels_np,
-        threshold=args.pseudo_threshold,  # 伪标签阈值（命令行参数）
+        high_threshold=args.high_threshold, # 传入细粒度阈值
+        low_threshold=args.low_threshold,   # 传入粗粒度阈值
         val_nodes=val_nodes,
-        clean_labels=clean_labels
+        clean_labels=clean_labels # 用于打印准确率以监控质量
     )
-
     sys.exit(0)
 
 
