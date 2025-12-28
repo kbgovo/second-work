@@ -121,7 +121,19 @@ def get_contrastive_emb(logger, adj, features, idx_train_F, idx_train_C,
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    n_feat = features.shape[1]
+    if len(features.shape) == 3:
+        # 输入形状: (Batch, Nodes, Features) -> (1, N, D)
+        n_feat = features.shape[2] 
+    else:
+        # 输入形状: (Nodes, Features) -> (N, D)
+        n_feat = features.shape[1]
+        features = features.unsqueeze(0) # 升维到 (1, N, D)
+    
+    if torch.is_tensor(features):
+        features = features.to(device)
+    else:
+        features = torch.FloatTensor(features).to(device)
+        
     n_hidden = 512  # 嵌入维度，可调整
     
     # 预处理图结构：A = A + I 并归一化
