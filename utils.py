@@ -264,20 +264,25 @@ def filter_noisy_seeds(features_np, idx_train, labels_np, keep_percentile=75):
 
     return clean_idx_train
 
-
-def expand_labeled_nodes(features, adj, idx_train, original_labels, threshold, val_nodes, clean_labels=None,
-                                  k=2):
+def expand_multigranularity_nodes(features, adj, idx_train, original_labels, 
+                                  high_threshold, low_threshold, 
+                                  val_nodes, clean_labels=None, k=2):
     """
-    [主函数] 执行鲁棒的监督增强
-
+    生成多粒度视图，F表示细粒度，C表示粗粒度视图。
     Args:
-        percentile (int): 0-100, 比如 80 代表只取前 20% 最可信的新边。
-        k (int): 特征平滑的阶数，推荐 2。
+        high_threshold (int): 细粒度视图的百分位阈值 (例如 90，代表 Top 10%)，对应论文 theta_h
+        low_threshold (int): 粗粒度视图的百分位阈值 (例如 60，代表 Top 40%)，对应论文 theta_l
+        k (int): 结构特征平滑的阶数
+    
+    Returns:
+        idx_train_F, labels_F: 细粒度视图的训练集索引和标签
+        idx_train_C, labels_C: 粗粒度视图的训练集索引和标签
     """
 
     # ---------------------------------------------------------
-    # 0. 数据格式统一化
+    # 1. 种子提纯 (Prototype-based Label Purification)
     # ---------------------------------------------------------
+    # 复用原有的 filter_noisy_seeds 函数，确保种子节点的质量
     if isinstance(features, torch.Tensor):
         x = features.cpu().numpy()
     elif sp.issparse(features):
@@ -290,125 +295,122 @@ def expand_labeled_nodes(features, adj, idx_train, original_labels, threshold, v
     else:
         labels_np = original_labels
 
-    percentile = threshold
-    # ---------------------------------------------------------
-    # 1. 执行种子提纯 (Seed Cleaning)
-    # ---------------------------------------------------------
-    # 这是防止 "Confirmation Bias" 的关键。
-    # 我们只用清洗过的 clean_idx_train 作为扩展源，而不是原始的 idx_train
+    # 这里的 keep_percentile 可以作为超参数，或者固定为 75
     clean_idx_train = filter_noisy_seeds(x, idx_train, labels_np, keep_percentile=75)
-
+    
     # ---------------------------------------------------------
-    # 2. 特征平滑 (Feature Smoothing)
+    # 2. 结构感知特征平滑 (Structure-Aware Feature Smoothing)
     # ---------------------------------------------------------
-    # 利用干净的图结构来增强特征的表达能力
     print(f">>> [Feature Smoothing] 执行 {k} 阶特征平滑...")
+    # 使用你在 utils.py 中已有的 preprocess_adj_for_smoothing
     norm_adj = preprocess_adj_for_smoothing(adj, self_loop_weight=2.0)
 
     smoothed_x = x
     for _ in range(k):
         smoothed_x = norm_adj.dot(smoothed_x)
 
-    # 如果原特征是稀疏矩阵，确保平滑后转为 Dense 用于计算
     if sp.issparse(smoothed_x):
         features_np = smoothed_x.toarray()
     else:
         features_np = smoothed_x
 
     # ---------------------------------------------------------
-    # 3. 收集候选边 (Candidate Collection)
+    # 3. 计算相似度并收集候选 (Candidate Collection)
     # ---------------------------------------------------------
-    print(f">>> [Expansion] 计算相似度并寻找候选邻居...")
-
+    print(f">>> [Expansion] 计算相似度并生成多粒度视图...")
+    
     seed_nodes_set = set(clean_idx_train.tolist())
-    val_nodes_set = set(val_nodes.tolist()) if isinstance(val_nodes, torch.Tensor) else set(val_nodes)
-    original_labeled_set = set(idx_train.tolist())  # 这是一个全集，用于判断邻居是否已标记
+    val_nodes_set = set(val_nodes.tolist()) if hasattr(val_nodes, 'tolist') else set(val_nodes)
+    # 注意：这里用原始的训练集作为“已标记”的基准，防止覆盖原始标签
+    original_labeled_set = set(idx_train.tolist()) 
 
-    candidates = []  # 存储候选元组
-    all_sims = []  # 用于计算分布
+    candidates = []
+    all_sims = []
 
-    # 只遍历【干净】的种子节点
     for node in seed_nodes_set:
         neighbors = adj[node].indices.tolist()
         if not neighbors: continue
 
-        # 使用平滑后的特征计算相似度
         node_feat = features_np[node].reshape(1, -1)
         neighbor_feats = features_np[neighbors]
         sims = cosine_similarity(node_feat, neighbor_feats).flatten()
 
         for i, neighbor in enumerate(neighbors):
-            # 目标节点不能是：已标记节点(无论对错)、验证集
+            # 排除：已有的训练节点、验证集节点
             if neighbor not in original_labeled_set and neighbor not in val_nodes_set:
                 sim_val = sims[i]
                 all_sims.append(sim_val)
-
                 candidates.append({
                     'target': neighbor,
-                    'label': labels_np[node],  # 传递当前种子的标签
+                    'label': labels_np[node],
                     'sim': sim_val
                 })
 
     if not candidates:
-        print("未找到可扩展的节点。")
-        return idx_train, original_labels
+        print("警告: 未找到可扩展节点，返回原始集合。")
+        return idx_train, original_labels, idx_train, original_labels
 
     # ---------------------------------------------------------
-    # 4. 动态阈值截断 & 全局排序 (Ranking & Selection)
+    # 4. 双阈值筛选 (Dual Thresholding)
     # ---------------------------------------------------------
-    # 自动计算分位点
-    cut_off = np.percentile(all_sims, percentile)
+    # 计算两个截断值
+    # high_threshold 对应细粒度 (Strict)，例如 90 分位
+    cut_off_high = np.percentile(all_sims, high_threshold)
+    # low_threshold 对应粗粒度 (Loose)，例如 60 分位
+    cut_off_low = np.percentile(all_sims, low_threshold)
+    
+    print(f"    - 细粒度阈值 (Top {100-high_threshold}%): {cut_off_high:.4f}")
+    print(f"    - 粗粒度阈值 (Top {100-low_threshold}%): {cut_off_low:.4f}")
 
-    # 按相似度降序排序，解决“先到先得”的冲突问题
-    # 让最确信的种子优先给邻居打标签
+    # 按相似度排序，确保高质量优先分配
     candidates.sort(key=lambda x: x['sim'], reverse=True)
 
-    print(f"    - 相似度分布: Mean={np.mean(all_sims):.4f}, Max={np.max(all_sims):.4f}")
-    print(f"    - 动态截断阈值 (Percentile={percentile}): {cut_off:.4f}")
+    # 初始化两组集合
+    # 细粒度集合 (F)
+    fine_new_labels = {}
+    fine_nodes_set = set(idx_train.tolist()) # 包含原始标签
+    
+    # 粗粒度集合 (C)
+    coarse_new_labels = {}
+    coarse_nodes_set = set(idx_train.tolist()) # 包含原始标签
 
-    # ---------------------------------------------------------
-    # 5. 分配标签
-    # ---------------------------------------------------------
-    new_labels_map = {}
-    expanded_nodes_set = set(idx_train.tolist())  # 结果包含原始集
-    cnt_correct = 0
-
+    # 开始分配
     for item in candidates:
-        if item['sim'] >= cut_off:
-            neighbor = item['target']
-
-            # 如果该邻居还没被分配 (因为排过序，第一次遇到的一定是相似度最高的)
-            if neighbor not in new_labels_map:
-                new_labels_map[neighbor] = item['label']
-                expanded_nodes_set.add(neighbor)
-
-                # --- 仅用于准确率验证 ---
-                if clean_labels is not None:
-                    true_val = clean_labels[neighbor]
-                    if isinstance(true_val, torch.Tensor): true_val = true_val.item()
-                    pred_val = item['label']
-                    if pred_val == true_val:
-                        cnt_correct += 1
+        neighbor = item['target']
+        label = item['label']
+        sim = item['sim']
+        
+        # --- 构建细粒度视图 (Fine-grained) ---
+        if sim >= cut_off_high:
+            if neighbor not in fine_new_labels:
+                fine_new_labels[neighbor] = label
+                fine_nodes_set.add(neighbor)
+        
+        # --- 构建粗粒度视图 (Coarse-grained) ---
+        # 注意：粗粒度集合是细粒度集合的超集 (Superset)，或者包含更多节点
+        # 只要满足低阈值即可入选粗粒度
+        if sim >= cut_off_low:
+            if neighbor not in coarse_new_labels:
+                coarse_new_labels[neighbor] = label
+                coarse_nodes_set.add(neighbor)
 
     # ---------------------------------------------------------
-    # 6. 结果合并
+    # 5. 结果封装
     # ---------------------------------------------------------
-    final_labels = labels_np.copy()
-    for k, v in new_labels_map.items():
-        final_labels[k] = v
+    def format_output(new_labels_map, base_nodes_set):
+        final_labels = labels_np.copy()
+        for n, l in new_labels_map.items():
+            final_labels[n] = l
+        return np.array(sorted(list(base_nodes_set))), final_labels
 
-    expanded_idx = np.array(sorted(list(expanded_nodes_set)))
+    idx_train_F, labels_F = format_output(fine_new_labels, fine_nodes_set)
+    idx_train_C, labels_C = format_output(coarse_new_labels, coarse_nodes_set)
 
-    # 打印最终报告
-    added_count = len(expanded_idx) - len(idx_train)
-    acc = cnt_correct / added_count if added_count > 0 else 0.0
-
-    print(f"--- 扩展完成 ---")
-    print(f"正确伪标签数: {cnt_correct}")
-    print(f"新增伪标签数: {added_count}")
-    print(f"伪标签准确率: {acc:.4f}")
-
-    return expanded_idx, final_labels
+    print(f"--- 多粒度扩展完成 ---")
+    print(f"细粒度集合 (F): 总数 {len(idx_train_F)}, 新增 {len(idx_train_F) - len(idx_train)}")
+    print(f"粗粒度集合 (C): 总数 {len(idx_train_C)}, 新增 {len(idx_train_C) - len(idx_train)}")
+    
+    return idx_train_F, labels_F, idx_train_C, labels_C
 
 '''
 def preprocess_adj_for_smoothing(adj):
