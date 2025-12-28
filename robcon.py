@@ -58,8 +58,12 @@ def compute_asymmetric_loss(z_fine, z_coarse, idx_train_F, idx_train_C, device, 
     # 细粒度集合 (包含原始标签 + 高置信伪标签) -> 权重 1.0
     # 粗粒度集合 \ 细粒度集合 -> 权重 gamma (例如 0.5)
     # 其他节点 -> 权重 beta (例如 0.1)
-    
-    num_nodes = z_fine.shape[0] # batch_size=1, nodes
+
+    if z_fine.dim() == 3:
+        num_nodes = z_fine.shape[1]  # 取 N
+    else:
+        num_nodes = z_fine.shape[0]  # 取 N
+
     weights = torch.ones(num_nodes).to(device) * beta # 默认为 beta
 
     # 将 numpy 索引转为 tensor 或 set

@@ -284,6 +284,7 @@ def expand_multigranularity_nodes(features, adj, idx_train, original_labels,
     # ---------------------------------------------------------
     # 复用原有的 filter_noisy_seeds 函数，确保种子节点的质量
     if isinstance(features, torch.Tensor):
+        m = skdfhas()
         x = features.cpu().numpy()
     elif sp.issparse(features):
         x = features.toarray()

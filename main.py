@@ -199,9 +199,8 @@ if __name__ == '__main__':
         val_nodes=val_nodes,
         clean_labels=clean_labels # 用于打印准确率以监控质量
     )
-    sys.exit(0)
 
-
+    # sys.exit(0)
     # 更新训练集索引和标签
     idx_train = idx_train_F
     labels = labels_F
