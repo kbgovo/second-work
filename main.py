@@ -40,18 +40,17 @@ parser.add_argument('--low_threshold', type=float, default=30,
 parser.add_argument('--eta', type=float, default=1.0, help='weight for classification loss in joint training')  # 控制总损失函数权重
 
 # 其他通用参数
-parser.add_argument('--cos', type=float, default=0.1, help='cosine similarity threshold for graph pruning')
-parser.add_argument('--k', type=int, default=2, help='add k neighbors')
+parser.add_argument('--k', type=int, default=3, help='add k neighbors')
 parser.add_argument('--alpha', type=float, default=0.3, help='parameter for adj normalization')
 parser.add_argument("--log", action='store_true', help='enable logging')
 parser.add_argument('--attack', type=str, default='mettack', help='attack method')
 parser.add_argument("--label_rate", type=float, default=0.05, help='rate of labeled data')
-parser.add_argument('--seed', type=int, default=11, help='Random seed')
-parser.add_argument('--s_rate', type=float, default=0.7, help='rate of delete edges')
-parser.add_argument('--edge_rate', type=float, default=0.5, help="noise edge rate")
+parser.add_argument('--seed', type=int, default=15, help='Random seed')
 parser.add_argument('--n_hidden', type=int, default=512, help='hidden dimension')
 parser.add_argument('--epochs', type=int, default=200, help='training epochs')
 parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
+parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
+parser.add_argument('--weight_decay', type=float, default=5e-3, help='weight_decay')
 
 args = parser.parse_args()
 
@@ -67,7 +66,7 @@ else:
 if args.attack == 'nettack':
     args.ptb_rate = int(args.ptb_rate)
 
-seed = 15
+seed = args.seed
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
@@ -151,7 +150,8 @@ if __name__ == '__main__':
         high_threshold=args.high_threshold,
         low_threshold=args.low_threshold,
         val_nodes=val_nodes,
-        clean_labels=clean_labels.cpu().numpy()
+        clean_labels=clean_labels.cpu().numpy(),
+        k=args.k
     )
 
     logger.info(f"Fine-grained set (F): {len(idx_train_F)}")
@@ -185,7 +185,7 @@ if __name__ == '__main__':
 
     # 4. 初始化模型
     # 共享编码器 (Output: Hidden Dim)
-    encoder = GCN_Contrastive(n_feat=features_tensor.shape[2], n_hidden=args.n_hidden).to(device)
+    encoder = GCN_Contrastive(n_feat=features_tensor.shape[2], n_hidden=args.n_hidden,dropout=args.dropout).to(device)
     # 分类器 (Linear: Hidden -> Class)
     classifier = nn.Linear(encoder.fc2.out_features, n_class).to(device)
 
