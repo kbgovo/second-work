@@ -7,6 +7,76 @@ from numpy.testing import assert_array_almost_equal
 from collections import defaultdict
 
 
+def inject_noise_fast(adj, edge_rate, seed=42):
+    """
+    高效注入噪声边 (Add Edge Noise)
+    保证: 1. 速度快(向量化) 2. 无向图对称性 3. 不重复添加
+    """
+    np.random.seed(seed)
+
+    # 1. 准备工作：获取图的基本信息
+    # 确保 adj 是上三角矩阵 (triu)，只取一半边，方便去重处理
+    adj_triu = sp.triu(adj, k=1)
+    rows, cols = adj_triu.nonzero()
+    existing_edges = set(zip(rows, cols))  # O(1) 查找的秘诀
+
+    num_nodes = adj.shape[0]
+    num_existing_edges = len(rows)  # 原始边数
+    num_noise_edges = int(num_existing_edges * edge_rate)  # 需要添加的数量
+
+    print(f"Adding {num_noise_edges} noise edges...")
+
+    new_edges = []
+
+    # 2. 批量生成 (比 while 循环快得多)
+    # 我们一次生成 2倍 甚至 3倍 的候选边，通常一次就能凑够，不用循环
+    while len(new_edges) < num_noise_edges:
+        # 还要缺多少条边
+        needed = num_noise_edges - len(new_edges)
+        # 多生成一些以防冲突 (2倍余量)
+        candidates_u = np.random.randint(0, num_nodes, needed * 2)
+        candidates_v = np.random.randint(0, num_nodes, needed * 2)
+
+        for u, v in zip(candidates_u, candidates_v):
+            if u == v: continue  # 跳过自环
+            if u > v: u, v = v, u  # 强制 u < v，确保唯一性
+
+            if (u, v) not in existing_edges:
+                existing_edges.add((u, v))  # 标记为已存在
+                new_edges.append((u, v))
+
+                if len(new_edges) >= num_noise_edges:
+                    break
+
+    # 3. 构建新的稀疏矩阵 (处理对称性)
+    new_edges = np.array(new_edges)
+    new_rows = new_edges[:, 0]
+    new_cols = new_edges[:, 1]
+
+    # 新增边的权重设为 1
+    new_data = np.ones(len(new_rows))
+
+    # 构造噪声矩阵 (包含 u->v 和 v->u)
+    noise_adj = sp.coo_matrix(
+        (np.concatenate([new_data, new_data]),
+         (np.concatenate([new_rows, new_cols]), np.concatenate([new_cols, new_rows]))),
+        shape=adj.shape
+    )
+
+    # 4. 合并并返回
+    # adj 可能是 CSR，noise_adj 是 COO，相加会自动处理
+    # 此时 final_adj 可能会有 >1 的值(如果原图有权重)，通常归一化会处理，或者转为二值
+    final_adj = adj + noise_adj
+
+    # 确保没有大于1的值 (可选，视具体需求)
+    final_adj.data = np.ones_like(final_adj.data)
+
+    return final_adj
+
+
+# 使用方法
+# noisy_adj = inject_noise_fast(cut_adj, args.edge_rate)
+
 def noisify_with_P(y_train, nb_classes, noise, random_state=None, noise_type='pair'):
     if noise > 0.0:
         if noise_type == 'uniform':
