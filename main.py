@@ -46,7 +46,7 @@ parser.add_argument('--tau', type=float, default=0.5, help='temperature for adja
 parser.add_argument('--warmup', type=int, default=60, help='epochs for teacher warmup')
 
 # 通用参数
-parser.add_argument('--k', type=int, default=3, help='add k neighbors')
+parser.add_argument('--k', type=int, default=2, help='add k neighbors')
 parser.add_argument('--alpha', type=float, default=0.3, help='parameter for adj normalization')
 parser.add_argument("--log", action='store_true', help='enable logging')
 parser.add_argument('--attack', type=str, default='mettack', help='attack method')
@@ -166,7 +166,7 @@ if __name__ == '__main__':
 
     # Student 使用信息更丰富的图结构 (Coarse edges)
     # 这里的 tau 可以大一点，保留更多结构
-    adj_coarse_raw = build_path_specific_adj(adj_for_expand, coarse_edges, tau=args.tau * 2)
+    adj_coarse_raw = build_path_specific_adj(adj_for_expand, coarse_edges, tau=args.tau)
     adj_coarse_norm = normalize_adj(adj_coarse_raw + sp.eye(adj_coarse_raw.shape[0]))
     sp_adj_coarse = sparse_mx_to_torch_sparse_tensor(adj_coarse_norm).to(device)
 
