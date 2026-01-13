@@ -49,6 +49,43 @@ class GCN_Contrastive(nn.Module):
         # 但如果后续任务需要幅度信息，可考虑去掉
         return x
 
+
+# [robcon.py]
+
+def compute_graph_smoothness_loss(probs, adj, idx_train=None):
+    """
+    计算图平滑度损失 (Graph Laplacian Regularization)
+    Loss = 1/N * \sum_{(i,j) \in E} A_ij ||y_i - y_j||^2
+    利用矩阵形式高效计算: Y^T L Y ≈ Y^T (I - A) Y (对于归一化图)
+    """
+    # probs: (N, C) Softmax 后的概率分布
+    # adj: (N, N) 归一化后的稀疏邻接矩阵 (sp_adj_coarse)
+
+    # 1. 计算 Y^T A Y
+    # sparse mm: (N, N) * (N, C) -> (N, C)
+    # 这里的 adj 已经是归一化过的 D^-1/2 A D^-1/2
+    smoothed_probs = torch.spmm(adj, probs)
+
+    # 2. 计算平滑损失
+    # L = I - A (对于归一化拉普拉斯)
+    # y^T L y = y^T y - y^T A y
+    # 我们希望相邻节点越像越好 -> y 和 Ay 越接近越好
+
+    # 逐元素相乘并求和
+    # (yi - \sum a_ij yj)^2 的一种近似或直接用 Dirichelet Energy
+
+    # 简化版：直接计算预测值与其平滑版本的距离
+    loss_smooth = torch.sum((probs - smoothed_probs) ** 2)
+
+    # 或者使用标准的拉普拉斯形式 (y_i - y_j)^2
+    # loss = \sum (y_i^2 + y_j^2 - 2 y_i y_j)
+    # 在归一化图中，这等价于最小化 y^T (I-A) y
+    # term1 = (probs * probs).sum()
+    # term2 = (probs * smoothed_probs).sum()
+    # loss_smooth = term1 - term2
+
+    return loss_smooth / probs.shape[0]
+
 def compute_asymmetric_loss(z_fine, z_coarse, idx_train_F, idx_train_C, device, tau=0.5, gamma=0.5, beta=0.1):
     """
     计算非对称对比损失 (Asymmetric Gradient Alignment)
