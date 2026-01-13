@@ -18,7 +18,8 @@ from utils import (
     sparse_mx_to_torch_sparse_tensor,
     noisify_with_P,
     build_path_specific_adj,
-    normalize_adj
+    normalize_adj,
+    inject_noise_fast
 )
 from deeprobust.graph.data import Dataset
 from robcon import GCN_Contrastive, compute_asymmetric_loss
@@ -29,7 +30,6 @@ from robcon import GCN_Contrastive, compute_asymmetric_loss
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='cora',
                     choices=['cora', 'cora_ml', 'citeseer', 'dblp', 'pubmed'], help='dataset')
-parser.add_argument('--ptb_rate', type=float, default=0.2, help='pertubation rate (noise level)')
 
 # --- 新增的多粒度阈值参数 ---
 parser.add_argument('--high_threshold', type=float, default=70,
@@ -41,7 +41,7 @@ parser.add_argument('--eta', type=float, default=1.0, help='weight for classific
 parser.add_argument('--tau', type=float, default=0.5, help='temperature for fine-grained boosting')
 
 # 其他通用参数
-parser.add_argument('--k', type=int, default=3, help='add k neighbors')
+parser.add_argument('--k', type=int, default=0, help='add k neighbors')
 parser.add_argument('--alpha', type=float, default=0.3, help='parameter for adj normalization')
 parser.add_argument("--log", action='store_true', help='enable logging')
 parser.add_argument('--attack', type=str, default='mettack', help='attack method')
@@ -52,6 +52,8 @@ parser.add_argument('--epochs', type=int, default=200, help='training epochs')
 parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
 parser.add_argument('--dropout', type=float, default=0.8, help='dropout rate')
 parser.add_argument('--weight_decay', type=float, default=5e-3, help='weight_decay')
+parser.add_argument('--ptb_rate', type=float, default=0.1, help='pertubation rate (noise level)')
+parser.add_argument('--add_edge_rate', type=float, default=0.3, help='Rate of adding random noise edges')
 
 args = parser.parse_args()
 
@@ -109,7 +111,7 @@ labels = noise_labels
 features = sp.csr_matrix(features)
 n_nodes = features.shape[0]
 n_class = labels.max() + 1
-perturbed_adj = adj
+perturbed_adj = inject_noise_fast(adj, args.add_edge_rate)
 perturbed_adj_sparse = to_scipy(torch.FloatTensor(perturbed_adj.todense())) if not sp.issparse(
     perturbed_adj) else perturbed_adj
 
