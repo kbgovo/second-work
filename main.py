@@ -57,7 +57,7 @@ parser.add_argument('--epochs', type=int, default=200, help='training epochs')
 parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
 parser.add_argument('--dropout', type=float, default=0.6, help='dropout rate')  # 增加 dropout 防止过拟合
 parser.add_argument('--weight_decay', type=float, default=5e-3, help='weight_decay')
-parser.add_argument('--temp', type=float, default=2.0, help='[New] Temperature for distillation')
+
 
 args = parser.parse_args()
 
