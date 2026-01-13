@@ -23,7 +23,7 @@ from utils import (
 )
 from deeprobust.graph.data import Dataset
 from robcon import GCN_Contrastive
-
+from robcon import compute_graph_smoothness_loss
 # ==========================================
 # 1. 参数设置
 # ==========================================
@@ -39,9 +39,10 @@ parser.add_argument('--low_threshold', type=float, default=20,
                     help='percentile for Coarse-grained View (Student)')
 
 # --- 训练权重参数 (已优化默认值) ---
-parser.add_argument('--eta', type=float, default=0.1,
+parser.add_argument('--eta', type=float, default=0.03,
                     help='weight for student classification loss (low trust in coarse labels)')
 parser.add_argument('--beta', type=float, default=2.0, help='weight for distillation loss (high trust in teacher)')
+parser.add_argument('--gamma', type=float, default=0.1, help='weight for label smoothing')
 parser.add_argument('--tau', type=float, default=0.5, help='temperature for adjacency construction')
 parser.add_argument('--warmup', type=int, default=60, help='epochs for teacher warmup')
 
@@ -51,10 +52,10 @@ parser.add_argument('--alpha', type=float, default=0.3, help='parameter for adj 
 parser.add_argument("--log", action='store_true', help='enable logging')
 parser.add_argument('--attack', type=str, default='mettack', help='attack method')
 parser.add_argument("--label_rate", type=float, default=0.05, help='rate of labeled data')
-parser.add_argument('--seed', type=int, default=12, help='Random seed')
+parser.add_argument('--seed', type=int, default=10, help='Random seed')
 parser.add_argument('--n_hidden', type=int, default=512, help='hidden dimension')
-parser.add_argument('--epochs', type=int, default=200, help='training epochs')
-parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
+parser.add_argument('--epochs', type=int, default=300, help='training epochs')
+parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
 parser.add_argument('--dropout', type=float, default=0.6, help='dropout rate')  # 增加 dropout 防止过拟合
 parser.add_argument('--weight_decay', type=float, default=5e-3, help='weight_decay')
 
@@ -200,6 +201,7 @@ if __name__ == '__main__':
         list(encoder_student.parameters()) + list(classifier_student.parameters()),
         lr=args.lr, weight_decay=args.weight_decay
     )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-5)
 
     # ---------------------------------------------------------
     # Step C: 训练循环 (Teacher Warmup + Distillation)
@@ -258,6 +260,7 @@ if __name__ == '__main__':
             # Student Forward (Coarse View)
             z_student = encoder_student(features_tensor, sp_adj_coarse, sparse=True).squeeze(0)
             logits_student = classifier_student(z_student)
+            probs_student = F.softmax(logits_student, dim=1)
 
             # Student Supervision Loss (降低权重 eta，因为这里有噪声)
             loss_sup_student = F.cross_entropy(logits_student[idx_train_C], labels_C_tensor[idx_train_C])
@@ -267,6 +270,8 @@ if __name__ == '__main__':
             probs_teacher = F.softmax(logits_teacher.detach(), dim=1)
             log_probs_student = F.log_softmax(logits_student, dim=1)
 
+            loss_smooth = compute_graph_smoothness_loss(probs_student, sp_adj_coarse)
+
             # 在全图节点上做蒸馏，传递结构知识
             loss_distill = F.kl_div(log_probs_student, probs_teacher, reduction='batchmean')
 
@@ -274,10 +279,12 @@ if __name__ == '__main__':
             # 1. 保持 Teacher 继续微调 (loss_sup_teacher)
             # 2. Student 学习粗标签 (eta * loss_sup_student)
             # 3. Student 模仿 Teacher (beta * loss_distill)
-            loss_total = loss_sup_teacher + args.eta * loss_sup_student + args.beta * loss_distill
+            loss_total = loss_sup_teacher + args.eta * loss_sup_student + args.beta * loss_distill + args.gamma * loss_smooth
 
             loss_total.backward()
             optimizer.step()
+
+            scheduler.step()
 
             phase_status = "Distill(T+S)"
 
