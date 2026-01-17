@@ -52,7 +52,7 @@ parser.add_argument('--alpha', type=float, default=0.3, help='parameter for adj 
 parser.add_argument("--log", action='store_true', help='enable logging')
 parser.add_argument('--attack', type=str, default='mettack', help='attack method')
 parser.add_argument("--label_rate", type=float, default=0.05, help='rate of labeled data')
-parser.add_argument('--seed', type=int, default=10, help='Random seed')
+parser.add_argument('--seed', type=int, default=11, help='Random seed')
 parser.add_argument('--n_hidden', type=int, default=512, help='hidden dimension')
 parser.add_argument('--epochs', type=int, default=300, help='training epochs')
 parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
