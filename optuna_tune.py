@@ -223,3 +223,17 @@ if __name__ == "__main__":
     print("=" * 30)
     print("Best Result (Test Acc corresponding to Best Val Model):", study.best_value)
     print("Best Params:", study.best_params)
+    df = study.trials_dataframe()
+
+    # 可选：删除一些不必要的列（如开始时间、结束时间）让表格更干净
+    columns_to_drop = ['datetime_start', 'datetime_complete', 'duration']
+    df = df.drop(columns=columns_to_drop, errors='ignore')
+
+    # 按 value (分数) 降序排列，最好的排前面
+    df = df.sort_values(by='value', ascending=False)
+
+    # 保存到文件
+    filename = f"optuna_results_{args.dataset}.csv"
+    df.to_csv(filename, index=False)
+
+    print(f"\n[Info] All trial results have been saved to '{filename}'")
