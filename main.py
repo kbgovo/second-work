@@ -29,7 +29,7 @@ from robcon import compute_graph_smoothness_loss
 # ==========================================
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='cora',
-                    choices=['cora', 'cora_ml', 'citeseer', 'dblp', 'pubmed'], help='dataset')
+                    choices=['cora', 'lastfm', 'citeseer', 'twitch'], help='dataset')
 parser.add_argument('--ptb_rate', type=float, default=0.2, help='pertubation rate (noise level)')
 
 # --- 多粒度阈值参数 ---
@@ -83,16 +83,35 @@ np.random.seed(15)
 # ==========================================
 # 3. 数据加载与预处理
 # ==========================================
-if args.dataset == 'dblp':
-    from torch_geometric.datasets import CitationFull
+if args.dataset == 'lastfm':
+    from torch_geometric.datasets import LastFMAsia
     import torch_geometric.utils as utils
-
-    dataset = CitationFull('./data', 'dblp')
-    adj = utils.to_scipy_sparse_matrix(dataset.data.edge_index)
-    features = dataset.data.x.numpy()
-    labels = dataset.data.y.numpy()
+    dataset = LastFMAsia(root='./data/LastFMAsia')
+    data = dataset[0]
+    adj = utils.to_scipy_sparse_matrix(data.edge_index).tocsr()
+    features = data.x.numpy()
+    labels = data.y.numpy()
     idx = np.arange(len(labels))
-    np.random.shuffle(idx)
+    np.random.shuffle(idx)  # 建议设置 np.random.seed() 保证可复现
+    idx_test = idx[:int(0.8 * len(labels))]
+    idx_val = idx[int(0.8 * len(labels)):int(0.9 * len(labels))]
+    idx_train = idx[int(0.9 * len(labels)):int((0.9 + args.label_rate) * len(labels))]
+
+elif args.dataset == 'twitch':
+    from torch_geometric.datasets import Twitch
+    import torch_geometric.utils as utils
+    dataset = Twitch(root='./data/Twitch', name='DE')
+    data = dataset[0]
+    if data.edge_index.shape[0] != 2:
+        print(f"检测到 edge_index 形状为 {data.edge_index.shape}，正在修正为 [2, E]...")
+        data.edge_index = data.edge_index.t().contiguous()
+    data.edge_index = utils.to_undirected(data.edge_index)
+    data.edge_index, _ = utils.add_self_loops(data.edge_index)
+    adj = utils.to_scipy_sparse_matrix(data.edge_index).tocsr()
+    features = data.x.numpy()
+    labels = data.y.numpy()
+    idx = np.arange(len(labels))
+    np.random.shuffle(idx)  # 建议设置 np.random.seed() 保证可复现
     idx_test = idx[:int(0.8 * len(labels))]
     idx_val = idx[int(0.8 * len(labels)):int(0.9 * len(labels))]
     idx_train = idx[int(0.9 * len(labels)):int((0.9 + args.label_rate) * len(labels))]
