@@ -347,3 +347,4 @@ if __name__ == '__main__':
         acc_test = preds_test.eq(test_labels_tensor).sum().item() / len(idx_test)
 
         logger.info(f"Test Accuracy: {acc_test:.4f}")
+        print(f"Final_Experiment_Result: {acc_test:.4f}")
