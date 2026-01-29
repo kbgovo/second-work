@@ -28,7 +28,7 @@ from robcon import compute_graph_smoothness_loss
 # 1. 参数设置
 # ==========================================
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='cora',
+parser.add_argument('--dataset', type=str, default='twitch',
                     choices=['cora', 'lastfm', 'citeseer', 'twitch'], help='dataset')
 parser.add_argument('--ptb_rate', type=float, default=0.2, help='pertubation rate (noise level)')
 
@@ -80,22 +80,31 @@ torch.cuda.manual_seed_all(seed)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 np.random.seed(15)
 
+
 # ==========================================
 # 3. 数据加载与预处理
 # ==========================================
 if args.dataset == 'lastfm':
     from torch_geometric.datasets import LastFMAsia
     import torch_geometric.utils as utils
+    import numpy as np
     dataset = LastFMAsia(root='./data/LastFMAsia')
     data = dataset[0]
     adj = utils.to_scipy_sparse_matrix(data.edge_index).tocsr()
     features = data.x.numpy()
     labels = data.y.numpy()
-    idx = np.arange(len(labels))
-    np.random.shuffle(idx)  # 建议设置 np.random.seed() 保证可复现
-    idx_test = idx[:int(0.8 * len(labels))]
-    idx_val = idx[int(0.8 * len(labels)):int(0.9 * len(labels))]
-    idx_train = idx[int(0.9 * len(labels)):int((0.9 + args.label_rate) * len(labels))]
+
+    n_nodes = len(labels)
+    train_size = int(0.10 * n_nodes)
+    val_size = int(0.10 * n_nodes)
+
+    idx = np.arange(n_nodes)
+    np.random.shuffle(idx)
+
+    # 按照 训练 -> 验证 -> 测试 的顺序切分 (顺序不影响结果，只要互斥即可)
+    idx_train = idx[:train_size]
+    idx_val = idx[train_size: train_size + val_size]
+    idx_test = idx[train_size + val_size:]
 
 elif args.dataset == 'twitch':
     from torch_geometric.datasets import Twitch
@@ -110,16 +119,69 @@ elif args.dataset == 'twitch':
     adj = utils.to_scipy_sparse_matrix(data.edge_index).tocsr()
     features = data.x.numpy()
     labels = data.y.numpy()
-    idx = np.arange(len(labels))
-    np.random.shuffle(idx)  # 建议设置 np.random.seed() 保证可复现
-    idx_test = idx[:int(0.8 * len(labels))]
-    idx_val = idx[int(0.8 * len(labels)):int(0.9 * len(labels))]
-    idx_train = idx[int(0.9 * len(labels)):int((0.9 + args.label_rate) * len(labels))]
+
+    n_nodes = len(labels)
+    train_size = int(0.10 * n_nodes)
+    val_size = int(0.10 * n_nodes)
+
+    idx = np.arange(n_nodes)
+    np.random.shuffle(idx)
+
+    # 按照 训练 -> 验证 -> 测试 的顺序切分 (顺序不影响结果，只要互斥即可)
+    idx_train = idx[:train_size]
+    idx_val = idx[train_size: train_size + val_size]
+    idx_test = idx[train_size + val_size:]
+
 else:
-    data = Dataset(root='./data', name=args.dataset)
-    adj, features, labels = data.adj, data.features, data.labels
-    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
-    idx_train = idx_train[:int(args.label_rate * adj.shape[0])]
+    def load_data_compatible(dataset_name='Cora', path='./data'):
+        """
+        加载 Cora 数据集，并转换为 Scipy/Numpy 格式，以兼容 DeepRobust 风格的代码。
+        配置逻辑遵循 cora.yaml:
+        1. split='public' (标准划分)
+        2. 无预处理归一化
+        3. 无自环
+        """
+        from torch_geometric.datasets import Planetoid
+        # 1. 加载数据 (使用标准划分)
+        name_map = {
+            'cora': 'Cora',
+            'citeseer': 'CiteSeer'
+        }
+        name = name_map.get(dataset_name.lower())
+        dataset = Planetoid(root=path, name=name, split='public')
+        data = dataset[0]
+
+        # 2. 转换特征 (Tensor -> Numpy Array)
+        # 对应 feat_norm: false，直接取原始值
+        # 如果你原本的代码期望特征是稀疏矩阵，可以用 sp.csr_matrix(data.x.numpy())
+        features = data.x.numpy()
+
+        # 3. 转换标签 (Tensor -> Numpy Array)
+        labels = data.y.numpy()
+
+        # 4. 转换划分索引 (Mask Tensor -> Numpy Indices)
+        # 将布尔掩码转换为具体的索引数组
+        idx_train = torch.nonzero(data.train_mask).squeeze().numpy()
+        idx_val = torch.nonzero(data.val_mask).squeeze().numpy()
+        idx_test = torch.nonzero(data.test_mask).squeeze().numpy()
+
+        # 5. 构建 Scipy 稀疏邻接矩阵 (Tensor -> Scipy CSR Matrix)
+        # 对应 add_self_loop: false，直接使用原始边
+        edge_index = data.edge_index.numpy()
+        num_nodes = data.num_nodes
+
+        # 构建 COO 格式矩阵
+        # 值的权重设为 1.0
+        values = np.ones(edge_index.shape[1])
+        adj = sp.coo_matrix((values, (edge_index[0], edge_index[1])),
+                            shape=(num_nodes, num_nodes))
+
+        # 转换为 CSR 格式 (DeepRobust 和大多数 GCN 实现常用的格式)
+        adj = adj.tocsr()
+
+        return adj, features, labels, idx_train, idx_val, idx_test
+
+    adj, features, labels, idx_train, idx_val, idx_test = load_data_compatible(args.dataset)
 
 clean_labels = labels.copy()
 clean_labels = torch.LongTensor(clean_labels).to(device)
