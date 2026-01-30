@@ -28,22 +28,22 @@ from robcon import compute_graph_smoothness_loss
 # 1. 参数设置
 # ==========================================
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='twitch',
+parser.add_argument('--dataset', type=str, default='cora',
                     choices=['cora', 'lastfm', 'citeseer', 'twitch'], help='dataset')
 parser.add_argument('--ptb_rate', type=float, default=0.2, help='pertubation rate (noise level)')
 
 # --- 多粒度阈值参数 ---
-parser.add_argument('--high_threshold', type=float, default=60,
+parser.add_argument('--high_threshold', type=float, default=95,
                     help='percentile for Fine-grained View (Teacher)')
-parser.add_argument('--low_threshold', type=float, default=20,
+parser.add_argument('--low_threshold', type=float, default=70,
                     help='percentile for Coarse-grained View (Student)')
 
 # --- 训练权重参数 (已优化默认值) ---
-parser.add_argument('--eta', type=float, default=0.03,
+parser.add_argument('--eta', type=float, default=0.08,
                     help='weight for student classification loss (low trust in coarse labels)')
-parser.add_argument('--beta', type=float, default=2.0, help='weight for distillation loss (high trust in teacher)')
-parser.add_argument('--gamma', type=float, default=0.1, help='weight for label smoothing')
-parser.add_argument('--tau', type=float, default=0.5, help='temperature for adjacency construction')
+parser.add_argument('--beta', type=float, default=0.84, help='weight for distillation loss (high trust in teacher)')
+parser.add_argument('--gamma', type=float, default=0.0002122386824213584, help='weight for label smoothing')
+parser.add_argument('--tau', type=float, default=1.5, help='temperature for adjacency construction')
 parser.add_argument('--warmup', type=int, default=60, help='epochs for teacher warmup')
 
 # 通用参数
@@ -53,11 +53,11 @@ parser.add_argument("--log", action='store_true', help='enable logging')
 parser.add_argument('--attack', type=str, default='mettack', help='attack method')
 parser.add_argument("--label_rate", type=float, default=0.05, help='rate of labeled data')
 parser.add_argument('--seed', type=int, default=11, help='Random seed')
-parser.add_argument('--n_hidden', type=int, default=512, help='hidden dimension')
+parser.add_argument('--n_hidden', type=int, default=64, help='hidden dimension')
 parser.add_argument('--epochs', type=int, default=300, help='training epochs')
-parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
-parser.add_argument('--dropout', type=float, default=0.6, help='dropout rate')  # 增加 dropout 防止过拟合
-parser.add_argument('--weight_decay', type=float, default=5e-3, help='weight_decay')
+parser.add_argument('--lr', type=float, default=0.0015226896076809097, help='learning rate')
+parser.add_argument('--dropout', type=float, default=0.7909174068214975, help='dropout rate')  # 增加 dropout 防止过拟合
+parser.add_argument('--weight_decay', type=float, default=0.008759771994628095, help='weight_decay')
 
 
 args = parser.parse_args()
@@ -127,7 +127,6 @@ elif args.dataset == 'twitch':
     idx = np.arange(n_nodes)
     np.random.shuffle(idx)
 
-    # 按照 训练 -> 验证 -> 测试 的顺序切分 (顺序不影响结果，只要互斥即可)
     idx_train = idx[:train_size]
     idx_val = idx[train_size: train_size + val_size]
     idx_test = idx[train_size + val_size:]
