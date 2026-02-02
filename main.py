@@ -7,6 +7,9 @@ import argparse
 import numpy as np
 import scipy.sparse as sp
 from copy import deepcopy
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
 # --- 导入依赖 ---
 # 确保 utils.py 和 robcon.py 在同一目录下
@@ -39,11 +42,11 @@ parser.add_argument('--low_threshold', type=float, default=70,
                     help='percentile for Coarse-grained View (Student)')
 
 # --- 训练权重参数 (已优化默认值) ---
-parser.add_argument('--eta', type=float, default=0.08,
+parser.add_argument('--eta', type=float, default=0.07884062447779473,
                     help='weight for student classification loss (low trust in coarse labels)')
-parser.add_argument('--beta', type=float, default=0.84, help='weight for distillation loss (high trust in teacher)')
+parser.add_argument('--beta', type=float, default=0.8368381709307913, help='weight for distillation loss (high trust in teacher)')
 parser.add_argument('--gamma', type=float, default=0.0002122386824213584, help='weight for label smoothing')
-parser.add_argument('--tau', type=float, default=1.5, help='temperature for adjacency construction')
+parser.add_argument('--tau', type=float, default=1.4839917675184102, help='temperature for adjacency construction')
 parser.add_argument('--warmup', type=int, default=60, help='epochs for teacher warmup')
 
 # 通用参数
@@ -200,6 +203,47 @@ n_class = labels.max() + 1
 perturbed_adj = adj
 perturbed_adj_sparse = to_scipy(torch.FloatTensor(perturbed_adj.todense())) if not sp.issparse(
     perturbed_adj) else perturbed_adj
+
+def tsne_plot(z, y, out_png="tsne_test.png", title="t-SNE", seed=42, perplexity=30, pca_dim=50):
+    """
+    z: Tensor (N, D)
+    y: Tensor/ndarray (N,)
+    """
+    if torch.is_tensor(z):
+        z = z.detach().cpu().numpy()
+    if torch.is_tensor(y):
+        y = y.detach().cpu().numpy()
+
+    n = z.shape[0]
+    if n < 5:
+        print("[t-SNE] too few samples to plot.")
+        return
+
+    # perplexity 必须 < 样本数；这里做个安全裁剪
+    max_perp = max(2, (n - 1) // 3)   # 一个常用的保守上限
+    perp = int(min(perplexity, max_perp))
+
+    # 可选：先 PCA 再 t-SNE（更稳更快）
+    if pca_dim is not None and z.shape[1] > pca_dim:
+        z = PCA(n_components=pca_dim, random_state=seed).fit_transform(z)
+
+    z2 = TSNE(
+        n_components=2,
+        init="pca",
+        learning_rate="auto",
+        perplexity=perp,
+        random_state=seed,
+    ).fit_transform(z)
+
+    plt.figure(figsize=(7, 6))
+    sc = plt.scatter(z2[:, 0], z2[:, 1], c=y, s=8)
+    plt.title(f"{title} (perp={perp})")
+    plt.colorbar(sc)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=300)
+    plt.close()
+    print(f"[t-SNE] saved: {out_png}")
+
 
 # ==========================================
 # 4. 主程序
@@ -425,6 +469,19 @@ if __name__ == '__main__':
         test_labels_tensor = clean_labels[idx_test]
         preds_test = logits_test[idx_test].max(1)[1]
         acc_test = preds_test.eq(test_labels_tensor).sum().item() / len(idx_test)
+
+        z_vis = z_test[idx_test]  # (N_test, hidden)
+        y_vis = clean_labels[idx_test]  # 用干净标签上色更直观
+
+        tsne_plot(
+            z_vis,
+            y_vis,
+            out_png=f"tsne_{args.dataset}_ptb{args.ptb_rate}_test.png",
+            title=f"{args.dataset} Student Embedding (test)",
+            seed=args.seed,
+            perplexity=30,
+            pca_dim=50
+        )
 
         logger.info(f"Test Accuracy: {acc_test:.4f}")
         print(f"Final_Experiment_Result: {acc_test:.4f}")
